@@ -13,7 +13,7 @@ import urllib2
 from datetime import datetime
 
 
-version = "0.3.0"
+version = "0.4.0"
 
 header = {"User-Agent": "osm-no/toll2osm"}
 
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 		else:
 			make_osm_line ("barrier", "toll_booth")
 
-		make_osm_line ("ref:nvdb", str(toll['id']))
+		make_osm_line ("ref:toll", str(toll['id']))
 
 		if "Navn bomstasjon" in info:
 			make_osm_line ("name", info['Navn bomstasjon'])
@@ -167,6 +167,8 @@ if __name__ == '__main__':
 		else:
 			make_osm_line ("MODIFISERT", toll['metadata']['startdato'][0:10])
 
+		make_osm_line ("OPPRETTET", toll['metadata']['startdato'][0:10])
+
 		file.write ('  </node>\n')
 
 	# Produce OSM file footer
@@ -175,3 +177,4 @@ if __name__ == '__main__':
 	file.close()
 
 	message ("Saved in file '%s'\n" % filename)
+
