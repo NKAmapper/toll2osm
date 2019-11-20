@@ -13,7 +13,7 @@ import urllib2
 from datetime import datetime
 
 
-version = "0.4.0"
+version = "0.5.0"
 
 header = {"User-Agent": "osm-no/toll2osm"}
 
@@ -109,13 +109,23 @@ if __name__ == '__main__':
 		make_osm_line ("ref:toll", str(toll['id']))
 
 		if "Navn bomstasjon" in info:
-			make_osm_line ("name", info['Navn bomstasjon'])
+			name = info['Navn bomstasjon'].replace("  ", " ").strip()
+			if name == name.upper():
+				name = name.title()
+			if name[0:2].lower() == "fv":
+				name = name.replace("FV", "Fv").replace("fv", "Fv").replace("Fv.", "Fv").replace("Fv ", "Fv")
+			if name[0:2].lower() == "rv":
+				name = name.replace("RV", "Rv").replace("rv", "Rv").replace("Rv.", "Rv").replace("Rv ", "Rv")
+			make_osm_line ("name", name)
 
 		if "Navn bompengeanlegg (fra CS)" in info:
-			make_osm_line ("operator", info['Navn bompengeanlegg (fra CS)'])
+			operator = info['Navn bompengeanlegg (fra CS)'].replace("  ", " ").strip()
+			if operator == operator.upper():
+				operator = operator.title().replace(" As", " AS")
+			make_osm_line ("operator", operator)
 
-		if "Link til bomstasjon" in info:
-			make_osm_line ("contact:website", "https://" + info['Link til bomstasjon'])
+#		if "Link til bomstasjon" in info:
+#			make_osm_line ("contact:website", "http://" + info['Link til bomstasjon'])  # Not https
 
 		if u"Etableringsår" in info:
 			make_osm_line ("start_date", str(info[u'Etableringsår']))
@@ -177,4 +187,3 @@ if __name__ == '__main__':
 	file.close()
 
 	message ("Saved in file '%s'\n" % filename)
-
