@@ -13,10 +13,13 @@ import urllib2
 from datetime import datetime
 
 
-version = "0.5.0"
+version = "0.6.0"
 
-header = {"User-Agent": "osm-no/toll2osm"}
-
+header = {
+	"X-Client": "osm-no/toll2osm",
+	"X-Kontaktperson": "nkamapper@gmail.com",
+	"Accept": "application/vnd.vegvesen.nvdb-v3-rev1+json"
+}
 	
 
 # Output message
@@ -33,7 +36,7 @@ def make_osm_line (key, value):
 
     if value:
 		encoded_value = cgi.escape(value.encode('utf-8'),True).strip()
-		file.write ('    <tag k="%s" v="%s" />\n' % (key, encoded_value))
+		out_file.write ('    <tag k="%s" v="%s" />\n' % (key, encoded_value))
 
 
 # Create amount string
@@ -63,127 +66,138 @@ if __name__ == '__main__':
 	counties = {}
 	for county in county_data:
 		counties[ int(county['fylkesnummer']) ] = county['fylkesnavn'].strip()
-
-	# Load toll stations from NVDB api
-
-	link = "https://www.vegvesen.no/nvdb/api/v2/vegobjekter/45?segmentering=true&inkluder=lokasjon,metadata,egenskaper&srid=wgs84"
-	request = urllib2.Request(link, headers=header)
-	file = urllib2.urlopen(request)
-	toll_data = json.load(file)
-	file.close()
-
-	message ("%s toll stations\n" % len(toll_data['objekter']))
-
+	
 	# Produce OSM file header
 
 	filename = "bomstasjoner.osm"
-	file = open(filename, "w")
+	out_file = open(filename, "w")
 
-	file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
-	file.write ('<osm version="0.6" generator="toll2osm v%s" upload="false">\n' % version)
+	out_file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
+	out_file.write ('<osm version="0.6" generator="toll2osm v%s" upload="false">\n' % version)
 
 	node_id = -1000
 
-	# Loop all toll stations and produce OSM file
+	# Loop all toll stations and produce OSM file, page by page
 
-	for toll in toll_data['objekter']:
+	returned = 1
+	toll_count = 0
 
-		node_id -= 1
+	link = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/45?inkluder=metadata,egenskaper,lokasjon,geometri&alle_versjoner=false&srid=wgs84"
+#	link = "https://www.vegvesen.no/nvdb/api/v2/vegobjekter/45?segmentering=true&inkluder=lokasjon,metadata,egenskaper&srid=wgs84"
 
-		info = {}
-		for toll_info in toll['egenskaper']:
-			info[ toll_info['navn'] ] = toll_info['verdi']
+	while returned > 0:
 
-		wkt = toll['lokasjon']['geometri']['wkt'].replace("POINT Z (", "").replace("POINT (", "").replace(")", "")
-		coordinate = wkt.split()
+		request = urllib2.Request(link, headers=header)
+		file = urllib2.urlopen(request)
+		toll_data = json.load(file)
+		file.close()
 
-		file.write ('  <node id="%i" lat="%s" lon="%s">\n' % (node_id, coordinate[0], coordinate[1]))
+		for toll in toll_data['objekter']:
 
-		# Tagging
+			node_id -= 1
+			toll_count += 1
 
-		if "Bomstasjonstype" in info and "automatisk" in info['Bomstasjonstype']:
-			make_osm_line ("highway", "toll_gantry")
-		else:
-			make_osm_line ("barrier", "toll_booth")
+			info = {}
+			for toll_info in toll['egenskaper']:
+				if "verdi" in toll_info:
+					info[ toll_info['navn'] ] = toll_info['verdi']
 
-		make_osm_line ("ref:toll", str(toll['id']))
+			wkt = toll['lokasjon']['geometri']['wkt'].replace("POINT Z (", "").replace("POINT Z(", "").replace("POINT (", "").replace(")", "")
+			coordinate = wkt.split()
 
-		if "Navn bomstasjon" in info:
-			name = info['Navn bomstasjon'].replace("  ", " ").strip()
-			if name == name.upper():
-				name = name.title()
-			if name[0:2].lower() == "fv":
-				name = name.replace("FV", "Fv").replace("fv", "Fv").replace("Fv.", "Fv").replace("Fv ", "Fv")
-			if name[0:2].lower() == "rv":
-				name = name.replace("RV", "Rv").replace("rv", "Rv").replace("Rv.", "Rv").replace("Rv ", "Rv")
-			make_osm_line ("name", name)
+			out_file.write ('  <node id="%i" lat="%s" lon="%s">\n' % (node_id, coordinate[0], coordinate[1]))
 
-		if "Navn bompengeanlegg (fra CS)" in info:
-			operator = info['Navn bompengeanlegg (fra CS)'].replace("  ", " ").strip()
-			if operator == operator.upper():
-				operator = operator.title().replace(" As", " AS")
-			make_osm_line ("operator", operator)
+			# Tagging
 
-#		if "Link til bomstasjon" in info:
-#			make_osm_line ("contact:website", "http://" + info['Link til bomstasjon'])  # Not https
-
-		if u"Etableringsår" in info:
-			make_osm_line ("start_date", str(info[u'Etableringsår']))
-
-		if u"Vedtatt til år" in info and info[u'Vedtatt til år'] >= year_now:
-			make_osm_line ("end_date", str(info[u'Vedtatt til år']))
-
-		# Fee tagging
-
-		if "Takst liten bil" in info:
-			make_osm_line ("fee:motorcar", amount(info['Takst liten bil']))
-
-			if "Takst stor bil" in info and info['Takst stor bil'] != info['Takst liten bil']:
-				make_osm_line ("fee:hgv", amount(info['Takst stor bil']))
-
-		else:
-			make_osm_line ("fee:motorcar", "yes")
-
-		if u"Gratis gjennomkjøring ved HC-brikke" in info and info[u'Gratis gjennomkjøring ved HC-brikke'] == "Ja":
-			make_osm_line ("fee:disabled", "no")
-
-		if "Tidsdifferensiert takst" in info and info['Tidsdifferensiert takst'] == "Ja" and "Rushtidstakst liten bil" in info:
-			times = "Mo-Fr %s-%s, %s-%s; PH off" % \
-					(info['Rushtid morgen, fra'], \
-					info['Rushtid morgen, til'].replace("08:29", "08:30").replace("08:59", "09:00"), \
-					info['Rushtid ettermiddag, fra'], \
-					info['Rushtid ettermiddag, til'].replace("16:29", "16:30").replace("16:59", "17:00"))
-
-			make_osm_line ("fee:motorcar:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst liten bil']), times))
-
-			if info['Rushtidstakst stor bil'] != info['Rushtidstakst liten bil']:
-				make_osm_line ("fee:hgv:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst stor bil']), times))			
-
-		if "Timesregel" in info and info['Timesregel'] == "Standard timesregel":
-			if "Timesregel, varighet" in info:
-				make_osm_line ("fee:duration", "{:02d}:{:02d}".format( *divmod(info['Timesregel, varighet'], 60)) )
+			if "Bomstasjonstype" in info and "automatisk" in info['Bomstasjonstype']:
+				make_osm_line ("highway", "toll_gantry")
 			else:
-				make_osm_line ("fee:duration", "01:00")
+				make_osm_line ("barrier", "toll_booth")
 
-		# Extra information
+			make_osm_line ("ref:toll", str(toll['id']))
 
-		if "Innkrevningsretning" in info:
-			make_osm_line ("RETNING", info['Innkrevningsretning'])
+			if "Navn bomstasjon" in info:
+				name = info['Navn bomstasjon'].replace("  ", " ").strip()
+				if name == name.upper():
+					name = name.title()
+				if name[0:2].lower() == "fv":
+					name = name.replace("FV", "Fv").replace("fv", "Fv").replace("Fv.", "Fv").replace("Fv ", "Fv")
+				if name[0:2].lower() == "rv":
+					name = name.replace("RV", "Rv").replace("rv", "Rv").replace("Rv.", "Rv").replace("Rv ", "Rv")
+				make_osm_line ("name", name)
 
-		make_osm_line ("FYLKE", counties[ toll['lokasjon']['fylker'][0] ])
+			if "Navn bompengeanlegg (fra CS)" in info:
+				operator = info['Navn bompengeanlegg (fra CS)'].replace("  ", " ").strip()
+				if operator == operator.upper():
+					operator = operator.title().replace(" As", " AS")
+				make_osm_line ("operator", operator)
 
-		if "sist_modifisert" in toll['metadata']:
-			make_osm_line ("MODIFISERT", toll['metadata']['sist_modifisert'][0:10])
-		else:
-			make_osm_line ("MODIFISERT", toll['metadata']['startdato'][0:10])
+	#		if "Link til bomstasjon" in info:
+	#			make_osm_line ("contact:website", "http://" + info['Link til bomstasjon'])  # Not https
 
-		make_osm_line ("OPPRETTET", toll['metadata']['startdato'][0:10])
+			if u"Etableringsår" in info:
+				make_osm_line ("start_date", str(info[u'Etableringsår']))
 
-		file.write ('  </node>\n')
+			if u"Vedtatt til år" in info and info[u'Vedtatt til år'] >= year_now:
+				make_osm_line ("end_date", str(info[u'Vedtatt til år']))
+
+			# Fee tagging
+
+			if "Takst liten bil" in info:
+				make_osm_line ("fee:motorcar", amount(info['Takst liten bil']))
+
+				if "Takst stor bil" in info and info['Takst stor bil'] != info['Takst liten bil']:
+					make_osm_line ("fee:hgv", amount(info['Takst stor bil']))
+
+			else:
+				make_osm_line ("fee:motorcar", "yes")
+
+			if u"Gratis gjennomkjøring ved HC-brikke" in info and info[u'Gratis gjennomkjøring ved HC-brikke'] == "Ja":
+				make_osm_line ("fee:disabled", "no")
+
+			if "Tidsdifferensiert takst" in info and info['Tidsdifferensiert takst'] == "Ja" and "Rushtidstakst liten bil" in info \
+				and "Rushtid morgen, fra" in info:
+				times = "Mo-Fr %s-%s, %s-%s; PH off" % \
+						(info['Rushtid morgen, fra'], \
+						info['Rushtid morgen, til'].replace("08:29", "08:30").replace("08:59", "09:00"), \
+						info['Rushtid ettermiddag, fra'], \
+						info['Rushtid ettermiddag, til'].replace("16:29", "16:30").replace("16:59", "17:00"))
+
+				make_osm_line ("fee:motorcar:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst liten bil']), times))
+
+				if info['Rushtidstakst stor bil'] != info['Rushtidstakst liten bil']:
+					make_osm_line ("fee:hgv:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst stor bil']), times))			
+
+			if "Timesregel" in info and info['Timesregel'] == "Standard timesregel":
+				if "Timesregel, varighet" in info:
+					make_osm_line ("fee:duration", "{:02d}:{:02d}".format( *divmod(info['Timesregel, varighet'], 60)) )
+				else:
+					make_osm_line ("fee:duration", "01:00")
+
+			# Extra information
+
+			if "Innkrevningsretning" in info:
+				make_osm_line ("RETNING", info['Innkrevningsretning'])
+
+	#		make_osm_line ("FYLKE", counties[ toll['lokasjon']['fylker'][0] ])
+
+			if "sist_modifisert" in toll['metadata']:
+				make_osm_line ("MODIFISERT", toll['metadata']['sist_modifisert'][0:10])
+			else:
+				make_osm_line ("MODIFISERT", toll['metadata']['startdato'][0:10])
+
+			make_osm_line ("OPPRETTET", toll['metadata']['startdato'][0:10])
+
+			out_file.write ('  </node>\n')
+
+		# Prepare for next page of data
+
+		returned = toll_data['metadata']['returnert']
+		link = toll_data['metadata']['neste']['href']
 
 	# Produce OSM file footer
 
-	file.write ('</osm>\n')
-	file.close()
+	out_file.write ('</osm>\n')
+	out_file.close()
 
-	message ("Saved in file '%s'\n" % filename)
+	message ("%s toll stations saved in file '%s'\n" % (toll_count, filename))
