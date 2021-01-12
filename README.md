@@ -3,9 +3,11 @@ Extracts toll stations from NVDB.
 
 ### Usage ###
 
-<code>python toll2osm.py</code>
+<code>python toll2osm.py [autopass]</code>
 
 Produces a _bomstasjoner.osm_ file containing all the toll stations in NVDB.
+
+Add optional <code>autopass</code> option to get toll stations from Autopass (for referencce, no fee information).
 
 ### Reference ###
 
