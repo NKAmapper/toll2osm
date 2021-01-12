@@ -1,19 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf8
 
 # toll2osm
 # Converts toll booths/gantries from NVDB json api to osm format for import/update
-# Usage: python toll2osm.py
+# Usage: python toll2osm.py [nvdb|autopass]
+
+# Alternative api from Autopass: https://www.autopass.no/System/alleanleggjson
 
 
-import cgi
+import html
 import json
 import sys
-import urllib2
+import urllib.request
 from datetime import datetime
 
 
-version = "0.6.0"
+version = "1.0.0"
 
 header = {
 	"X-Client": "osm-no/toll2osm",
@@ -34,9 +36,9 @@ def message (line):
 
 def make_osm_line (key, value):
 
-    if value:
-		encoded_value = cgi.escape(value.encode('utf-8'),True).strip()
-		out_file.write ('    <tag k="%s" v="%s" />\n' % (key, encoded_value))
+	if value:
+		escaped_value = html.escape(value).strip()
+		out_file.write ('    <tag k="%s" v="%s" />\n' % (key, escaped_value))
 
 
 # Create amount string
@@ -49,46 +51,26 @@ def amount (value):
 		return "%.2f" % value
 
 
-# Main program
+# Generate toll stations from NVDB
 
-if __name__ == '__main__':
+def get_nvdb():
 
-	year_now = datetime.now().year
-
-	# Load county id's and names from Kartverket api
-
-	link = "https://ws.geonorge.no/kommuneinfo/v1/fylker"
-	request = urllib2.Request(link, headers=header)
-	file = urllib2.urlopen(request)
-	county_data = json.load(file)
-	file.close()
-
-	counties = {}
-	for county in county_data:
-		counties[ int(county['fylkesnummer']) ] = county['fylkesnavn'].strip()
-	
-	# Produce OSM file header
-
-	filename = "bomstasjoner.osm"
-	out_file = open(filename, "w")
-
-	out_file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
-	out_file.write ('<osm version="0.6" generator="toll2osm v%s" upload="false">\n' % version)
-
-	node_id = -1000
+	global toll_count
 
 	# Loop all toll stations and produce OSM file, page by page
 
+	node_id = -1000
 	returned = 1
-	toll_count = 0
 
-	link = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/45?inkluder=metadata,egenskaper,lokasjon,geometri&alle_versjoner=false&srid=wgs84"
-#	link = "https://www.vegvesen.no/nvdb/api/v2/vegobjekter/45?segmentering=true&inkluder=lokasjon,metadata,egenskaper&srid=wgs84"
+	url = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/45?inkluder=metadata,egenskaper,lokasjon,geometri&alle_versjoner=false&srid=wgs84"
+#	url = "https://www.vegvesen.no/nvdb/api/v2/vegobjekter/45?segmentering=true&inkluder=lokasjon,metadata,egenskaper&srid=wgs84"
 
 	while returned > 0:
 
-		request = urllib2.Request(link, headers=header)
-		file = urllib2.urlopen(request)
+		# Load toll stations from NVDB api (next page)
+
+		request = urllib.request.Request(url, headers=header)
+		file = urllib.request.urlopen(request)
 		toll_data = json.load(file)
 		file.close()
 
@@ -179,8 +161,6 @@ if __name__ == '__main__':
 			if "Innkrevningsretning" in info:
 				make_osm_line ("RETNING", info['Innkrevningsretning'])
 
-	#		make_osm_line ("FYLKE", counties[ toll['lokasjon']['fylker'][0] ])
-
 			if "sist_modifisert" in toll['metadata']:
 				make_osm_line ("MODIFISERT", toll['metadata']['sist_modifisert'][0:10])
 			else:
@@ -193,7 +173,62 @@ if __name__ == '__main__':
 		# Prepare for next page of data
 
 		returned = toll_data['metadata']['returnert']
-		link = toll_data['metadata']['neste']['href']
+		url = toll_data['metadata']['neste']['href']
+
+
+# Generate toll stations from Autopass
+
+def get_autopass():
+
+	global toll_count
+
+	url = "https://www.autopass.no/System/alleanleggjson"
+	request = urllib.request.Request(url)
+	file = urllib.request.urlopen(request)
+	toll_data = json.load(file)
+	file.close()
+	node_id = -1000
+
+	for toll in toll_data['bomstasjoner']['bomstasjon']:
+
+		toll_count += 1
+		node_id -= 1
+
+		latitude, longitude = toll['lat'], toll['lon']
+		if not latitude:
+			latitude = 0.0
+		if not longitude:
+			longitude = 0.0
+
+		out_file.write ('  <node id="%i" lat="%s" lon="%s">\n' % (node_id, latitude, longitude))
+		make_osm_line ("highway", "toll_gantry")
+		make_osm_line ("ref:autopass", "%i-%i" % (toll['bomanleggid'], toll['bomstasjonsid']))
+		make_osm_line ("name", toll['bomstasjonsnavn'])
+		out_file.write ('  </node>\n')
+
+
+# Main program
+
+if __name__ == '__main__':
+
+	year_now = datetime.now().year
+	
+	# Produce OSM file header
+
+	filename = "bomstasjoner.osm"
+	out_file = open(filename, "w")
+
+	out_file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
+	out_file.write ('<osm version="0.6" generator="toll2osm v%s" upload="false">\n' % version)
+
+	toll_count = 0
+
+	if len(sys.argv) > 1 and sys.argv[1].lower() == "autopass":
+		get_autopass()
+
+	else:
+		get_nvdb()
+
 
 	# Produce OSM file footer
 
