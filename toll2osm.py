@@ -6,6 +6,7 @@
 # Usage: python toll2osm.py [nvdb|autopass]
 
 # Alternative api from Autopass: https://www.autopass.no/System/alleanleggjson
+# (Currently not working)
 
 
 import html
@@ -15,10 +16,10 @@ import urllib.request
 from datetime import datetime
 
 
-version = "1.0.0"
+version = "1.1.0"
 
 header = {
-	"X-Client": "osm-no/toll2osm",
+	"X-Client": "NKAmapper/toll2osm",
 	"X-Kontaktperson": "nkamapper@gmail.com",
 	"Accept": "application/vnd.vegvesen.nvdb-v3-rev1+json"
 }
@@ -63,7 +64,6 @@ def get_nvdb():
 	returned = 1
 
 	url = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/45?inkluder=metadata,egenskaper,lokasjon,geometri&alle_versjoner=false&srid=wgs84"
-#	url = "https://www.vegvesen.no/nvdb/api/v2/vegobjekter/45?segmentering=true&inkluder=lokasjon,metadata,egenskaper&srid=wgs84"
 
 	while returned > 0:
 
@@ -114,47 +114,49 @@ def get_nvdb():
 					operator = operator.title().replace(" As", " AS")
 				make_osm_line ("operator", operator)
 
-	#		if "Link til bomstasjon" in info:
-	#			make_osm_line ("contact:website", "http://" + info['Link til bomstasjon'])  # Not https
+#			if "Link til bomstasjon" in info:
+#				make_osm_line ("contact:website", "http://" + info['Link til bomstasjon'])  # Not https
 
-			if u"Etableringsår" in info:
-				make_osm_line ("start_date", str(info[u'Etableringsår']))
+			if "Etableringsår" in info:
+				make_osm_line ("start_date", str(info['Etableringsår']))
 
-			if u"Vedtatt til år" in info and info[u'Vedtatt til år'] >= year_now:
-				make_osm_line ("end_date", str(info[u'Vedtatt til år']))
+			if "Vedtatt til år" in info and info['Vedtatt til år'] >= year_now:
+				make_osm_line ("end_date", str(info['Vedtatt til år']))
 
 			# Fee tagging
 
+			duration = ""
+			if "Timesregel" in info and info['Timesregel'] == "Standard timesregel":
+				if "Timesregel, varighet" in info:
+					if info['Timesregel, varighet'] == 60:
+						duration = "/hour"
+					else:
+						duration = "/%i minutes" % info['Timesregel, varighet']
+
+				else:
+					duration = "/hour"
+
 			if "Takst liten bil" in info:
-				make_osm_line ("fee:motorcar", amount(info['Takst liten bil']))
+				make_osm_line ("charge:motorcar", "%s NOK%s" % (amount(info['Takst liten bil']), duration))
 
 				if "Takst stor bil" in info and info['Takst stor bil'] != info['Takst liten bil']:
-					make_osm_line ("fee:hgv", amount(info['Takst stor bil']))
+					make_osm_line ("charge:hgv", "%s NOK%s" % (amount(info['Takst stor bil']), duration))
 
-			else:
-				make_osm_line ("fee:motorcar", "yes")
-
-			if u"Gratis gjennomkjøring ved HC-brikke" in info and info[u'Gratis gjennomkjøring ved HC-brikke'] == "Ja":
-				make_osm_line ("fee:disabled", "no")
+			if "Gratis gjennomkjøring ved HC-brikke" in info and info['Gratis gjennomkjøring ved HC-brikke'] == "Ja":
+				make_osm_line ("toll:disabled", "no")
 
 			if "Tidsdifferensiert takst" in info and info['Tidsdifferensiert takst'] == "Ja" and "Rushtidstakst liten bil" in info \
-				and "Rushtid morgen, fra" in info:
+					and "Rushtid morgen, fra" in info:
 				times = "Mo-Fr %s-%s, %s-%s; PH off" % \
 						(info['Rushtid morgen, fra'], \
 						info['Rushtid morgen, til'].replace("08:29", "08:30").replace("08:59", "09:00"), \
 						info['Rushtid ettermiddag, fra'], \
 						info['Rushtid ettermiddag, til'].replace("16:29", "16:30").replace("16:59", "17:00"))
 
-				make_osm_line ("fee:motorcar:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst liten bil']), times))
+				make_osm_line ("charge:motorcar:conditional", "%s NOK%s @ (%s)" % (amount(info['Rushtidstakst liten bil']), duration, times))
 
 				if info['Rushtidstakst stor bil'] != info['Rushtidstakst liten bil']:
-					make_osm_line ("fee:hgv:conditional", "%s @ (%s)" % (amount(info['Rushtidstakst stor bil']), times))			
-
-			if "Timesregel" in info and info['Timesregel'] == "Standard timesregel":
-				if "Timesregel, varighet" in info:
-					make_osm_line ("fee:duration", "{:02d}:{:02d}".format( *divmod(info['Timesregel, varighet'], 60)) )
-				else:
-					make_osm_line ("fee:duration", "01:00")
+					make_osm_line ("charge:hgv:conditional", "%s NOK%s @ (%s)" % (amount(info['Rushtidstakst stor bil']), duration, times))
 
 			# Extra information
 
@@ -176,7 +178,7 @@ def get_nvdb():
 		url = toll_data['metadata']['neste']['href']
 
 
-# Generate toll stations from Autopass
+# Generate toll stations from Autopass (currently not working)
 
 def get_autopass():
 
