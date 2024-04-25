@@ -16,7 +16,7 @@ import urllib.request
 from datetime import datetime
 
 
-version = "1.1.0"
+version = "1.1.1"
 
 header = {
 	"X-Client": "NKAmapper/toll2osm",
@@ -99,7 +99,7 @@ def get_nvdb():
 			make_osm_line ("ref:toll", str(toll['id']))
 
 			if "Navn bomstasjon" in info:
-				name = info['Navn bomstasjon'].replace("  ", " ").strip()
+				name = " ".join(info['Navn bomstasjon'].split())
 				if name == name.upper():
 					name = name.title()
 				if name[0:2].lower() == "fv":
@@ -109,7 +109,7 @@ def get_nvdb():
 				make_osm_line ("name", name)
 
 			if "Navn bompengeanlegg (fra CS)" in info:
-				operator = info['Navn bompengeanlegg (fra CS)'].replace("  ", " ").strip()
+				operator = " ".join(info['Navn bompengeanlegg (fra CS)'].split())
 				if operator == operator.upper():
 					operator = operator.title().replace(" As", " AS")
 				make_osm_line ("operator", operator)
